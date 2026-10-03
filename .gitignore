@@ -1,0 +1,13 @@
+node_modules/
+
+# Local configuration and translation history
+config.json
+config.json.tmp
+data/
+
+# Editors and tools
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
