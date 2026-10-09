@@ -24,6 +24,9 @@ function icon(name, size = 18, cls = '') {
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const isTouch = matchMedia('(pointer: coarse)').matches;
+// Enter sends on desktop; keyCode 229 covers browsers that report IME confirmation without isComposing
+const isSubmitEnter = (event) =>
+  event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229 && !isTouch;
 
 const el = {
   sidebar: $('#sidebar'),
@@ -58,6 +61,7 @@ const state = {
   loadedUpdatedAt: null,
   views: new Map(), // messageId -> 'original' | 'translation'
   reasoningPref: new Map(), // messageId -> open/closed state chosen by the user
+  edit: null, // { id } of the message whose original is being edited
   streams: 0,
   dirMode: 'auto', // 'auto' | 'ja' | 'foreign'
   editingSessionId: null,
@@ -237,6 +241,7 @@ async function selectSession(id) {
     state.loadedUpdatedAt = null;
     state.views.clear();
     state.reasoningPref.clear();
+    state.edit = null;
     state.dirMode = 'auto';
     renderMessages();
   }
@@ -338,9 +343,11 @@ function isReasoningOpen(m) {
   return state.reasoningPref.get(m.id) ?? isReasoningLive(m);
 }
 
+const isEditing = (m) => state.edit?.id === m.id;
+
 // While this key stays the same during streaming, only the text nodes are updated
 function renderKey(m) {
-  return [m.status, viewOf(m), isReasoningOpen(m), Boolean(m.reasoning), Boolean(m.translation)].join('|');
+  return [m.status, viewOf(m), isReasoningOpen(m), Boolean(m.reasoning), Boolean(m.translation), isEditing(m)].join('|');
 }
 
 function reasoningHtml(m) {
@@ -363,7 +370,7 @@ function bodyHtml(m, view) {
       ? `<div class="bubble-error">${icon('alert', 16)}<span>翻訳に失敗しました: ${esc(m.error)}</span></div>`
       : '';
   if (view === 'original') {
-    return `<div class="bubble-text">${esc(m.original)}</div>${errorBox}`;
+    return `<div class="bubble-text original">${esc(m.original)}</div>${errorBox}`;
   }
   if (m.status === 'error') return errorBox;
   if (m.status === 'pending' && !m.translation) {
@@ -373,7 +380,23 @@ function bodyHtml(m, view) {
   return `${reasoningHtml(m)}<div class="bubble-text translation${caret}">${esc(m.translation)}</div>`;
 }
 
+function editMessageHtml(m) {
+  return `
+    <article class="msg${m.sourceLang === 'ja' ? ' mine' : ''} editing" data-id="${m.id}" data-key="${renderKey(m)}">
+      <div class="bubble">
+        <div class="bubble-head"><span class="bubble-kind">原文を編集</span></div>
+        <textarea class="bubble-edit" rows="1" aria-label="原文">${esc(m.original)}</textarea>
+        <div class="bubble-foot">
+          <time class="bubble-time" datetime="${m.createdAt}">${formatTime(m.createdAt)}</time>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-edit">キャンセル</button>
+          <button type="button" class="btn btn-primary btn-sm" data-action="submit-edit">翻訳</button>
+        </div>
+      </div>
+    </article>`;
+}
+
 function messageHtml(m) {
+  if (isEditing(m)) return editMessageHtml(m);
   const mine = m.sourceLang === 'ja';
   const view = viewOf(m);
   const shownLang = view === 'original' ? m.sourceLang : m.targetLang;
@@ -396,6 +419,7 @@ function messageHtml(m) {
         <div class="bubble-foot">
           <time class="bubble-time" datetime="${m.createdAt}">${formatTime(m.createdAt)}</time>
           ${pending ? '' : `
+          <button type="button" class="mini-btn secondary" data-action="edit-message" title="編集して再翻訳">${icon('pencil', 14)}</button>
           <button type="button" class="mini-btn secondary" data-action="retranslate" title="再翻訳">${icon('refresh', 14)}</button>
           <button type="button" class="mini-btn secondary" data-action="flip" title="言語判定を反転して再翻訳">${icon('swap', 14)}</button>
           <button type="button" class="mini-btn secondary" data-action="delete-message" title="削除">${icon('trash', 14)}</button>`}
@@ -405,8 +429,46 @@ function messageHtml(m) {
     </article>`;
 }
 
+function setText(node, selector, text) {
+  const target = node.querySelector(selector);
+  if (target && target.textContent !== text) target.textContent = text;
+}
+
+// A node whose renderKey is unchanged is kept and only its text is refreshed, so an open editor,
+// focus and scroll offsets survive reloads and streaming.
+function syncNode(node, m) {
+  if (node?.dataset.key === renderKey(m)) {
+    setText(node, '.reasoning-text', m.reasoning);
+    setText(node, '.bubble-text.translation', m.translation);
+    setText(node, '.bubble-text.original', m.original);
+    return node;
+  }
+  const template = document.createElement('template');
+  template.innerHTML = messageHtml(m).trim();
+  const fresh = template.content.firstElementChild;
+  node?.replaceWith(fresh);
+  return fresh;
+}
+
+function fitEditor(node) {
+  const editor = node.querySelector('.bubble-edit');
+  if (editor && !editor.style.height) autosize(editor);
+}
+
 function renderMessages() {
-  el.messages.innerHTML = state.messages.map(messageHtml).join('');
+  const stale = new Map([...el.messages.children].map((node) => [node.dataset.id, node]));
+  let prev = null;
+  for (const m of state.messages) {
+    const node = syncNode(stale.get(m.id), m);
+    stale.delete(m.id);
+    if ((prev ? prev.nextElementSibling : el.messages.firstElementChild) !== node) {
+      if (prev) prev.after(node);
+      else el.messages.prepend(node);
+    }
+    fitEditor(node);
+    prev = node;
+  }
+  for (const node of stale.values()) node.remove();
   scrollLiveReasoning();
 }
 
@@ -422,14 +484,7 @@ function updateMessageElement(m) {
   const node = el.messages.querySelector(`[data-id="${m.id}"]`);
   if (!node) return;
   const pinned = isNearBottom();
-  if (node.dataset.key === renderKey(m)) {
-    const reasoning = node.querySelector('.reasoning-text');
-    if (reasoning) reasoning.textContent = m.reasoning;
-    const translation = node.querySelector('.bubble-text.translation');
-    if (translation) translation.textContent = m.translation;
-  } else {
-    node.outerHTML = messageHtml(m);
-  }
+  fitEditor(syncNode(node, m));
   scrollLiveReasoning();
   if (pinned) scrollToBottom();
 }
@@ -487,9 +542,10 @@ function updateComposer() {
   el.sendBtn.disabled = !el.input.value.trim();
 }
 
-function autosize() {
-  el.input.style.height = 'auto';
-  el.input.style.height = `${el.input.scrollHeight}px`;
+function autosize(ta = el.input) {
+  ta.style.height = 'auto';
+  // offsetHeight - clientHeight adds back the border, which scrollHeight leaves out
+  ta.style.height = `${ta.scrollHeight + ta.offsetHeight - ta.clientHeight}px`;
 }
 
 async function send() {
@@ -665,6 +721,25 @@ async function retranslate(m, body) {
   }
 }
 
+function setEdit(m) {
+  const prev = state.messages.find(isEditing);
+  state.edit = m ? { id: m.id } : null;
+  if (prev) updateMessageElement(prev);
+  if (!m) return;
+  updateMessageElement(m);
+  const editor = el.messages.querySelector(`[data-id="${m.id}"] .bubble-edit`);
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function submitEdit(editor) {
+  const m = messageOf(editor);
+  const text = editor.value.trim();
+  if (!m || !text) return;
+  setEdit(null);
+  retranslate(m, { text });
+}
+
 const actions = {
   'new-session': () => openSessionDialog(),
   'edit-session': () => openSessionDialog(activeSession()),
@@ -711,6 +786,12 @@ const actions = {
       toast('コピーできませんでした', 'error');
     }
   },
+  'edit-message': (btn) => {
+    const m = messageOf(btn);
+    if (m) setEdit(m);
+  },
+  'cancel-edit': () => setEdit(null),
+  'submit-edit': (btn) => submitEdit(btn.closest('.bubble').querySelector('.bubble-edit')),
   retranslate: (btn) => {
     const m = messageOf(btn);
     if (m) retranslate(m, {});
@@ -755,10 +836,24 @@ el.input.addEventListener('input', () => {
 });
 
 el.input.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
-  if (isTouch) return;
+  if (!isSubmitEnter(event)) return;
   event.preventDefault();
   send();
+});
+
+el.messages.addEventListener('input', (event) => {
+  if (event.target.matches('.bubble-edit')) autosize(event.target);
+});
+
+el.messages.addEventListener('keydown', (event) => {
+  if (!event.target.matches('.bubble-edit')) return;
+  if (isSubmitEnter(event)) {
+    event.preventDefault();
+    submitEdit(event.target);
+  } else if (event.key === 'Escape' && !event.isComposing) {
+    event.preventDefault();
+    setEdit(null);
+  }
 });
 
 el.sessionForm.addEventListener('submit', submitSessionForm);

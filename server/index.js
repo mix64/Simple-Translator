@@ -92,6 +92,13 @@ function parseSessionFields(body, { partial }) {
   return fields;
 }
 
+function parseText(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new HttpError(400, 'テキストが空です');
+  if (text.length > MAX_TEXT_LENGTH) throw new HttpError(400, `テキストは ${MAX_TEXT_LENGTH} 文字以内にしてください`);
+  return text;
+}
+
 function parseSourceLang(value, session) {
   if (value === undefined || value === null) return undefined;
   if (value !== 'ja' && value !== session.targetLang) throw new HttpError(400, '原文の言語が不正です');
@@ -242,10 +249,7 @@ route('GET', '/api/sessions/:id/messages', (req, res, { id }) => {
 route('POST', '/api/sessions/:id/messages', async (req, res, { id }) => {
   const session = findSession(id);
   const body = await readJson(req);
-  const text = typeof body.text === 'string' ? body.text.trim() : '';
-  if (!text) throw new HttpError(400, 'テキストが空です');
-  if (text.length > MAX_TEXT_LENGTH) throw new HttpError(400, `テキストは ${MAX_TEXT_LENGTH} 文字以内にしてください`);
-
+  const text = parseText(body.text);
   const sourceLang = parseSourceLang(body.sourceLang, session) ?? detectSourceLang(text, session.targetLang);
   const message = {
     id: randomUUID(),
@@ -265,15 +269,19 @@ route('POST', '/api/sessions/:id/messages', async (req, res, { id }) => {
 });
 
 // Passing sourceLang retranslates in the other direction when language detection was wrong.
+// Passing text replaces the original; its language is detected again unless sourceLang is also given.
 route('POST', '/api/messages/:id/retranslate', async (req, res, { id }) => {
   const message = findMessage(id);
   const session = findSession(message.sessionId);
   if (message.status === 'pending') throw new HttpError(409, 'このメッセージは翻訳中です');
-  const sourceLang = parseSourceLang((await readJson(req)).sourceLang, session);
-  if (sourceLang) {
-    message.sourceLang = sourceLang;
-    message.targetLang = translationLangOf(sourceLang, session.targetLang);
-  }
+  const body = await readJson(req);
+  const text = body.text === undefined ? undefined : parseText(body.text);
+  const sourceLang =
+    parseSourceLang(body.sourceLang, session) ??
+    (text ? detectSourceLang(text, session.targetLang) : message.sourceLang);
+  if (text) message.original = text;
+  message.sourceLang = sourceLang;
+  message.targetLang = translationLangOf(sourceLang, session.targetLang);
   await runTranslation(res, session, message);
 });
 

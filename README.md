@@ -14,7 +14,7 @@ such as a local model served with vLLM or llama.cpp.
 - Switch a message bubble between the original and the translation with one click, and copy whichever is shown
 - See the model's reasoning stream in while it translates; it collapses once the translation starts
 - Keep a per-session glossary that the model must follow
-- Retranslate a message, retranslate it in the opposite direction, or delete it
+- Edit a message's original text and translate it again, retranslate it, retranslate it in the opposite direction, or delete it
 - History is stored on the server, so every device sees the same sessions
 
 The UI is in Japanese.
