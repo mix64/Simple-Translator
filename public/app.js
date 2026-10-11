@@ -1,4 +1,5 @@
 import { LANGS, detectSourceLang } from './shared/lang.js';
+import { DEFAULT_PROVIDER, PROVIDERS } from './shared/providers.js';
 
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
@@ -65,7 +66,7 @@ const state = {
   streams: 0,
   dirMode: 'auto', // 'auto' | 'ja' | 'foreign'
   editingSessionId: null,
-  apiKeyDirty: false,
+  providerDrafts: null, // providerId -> { baseUrl, apiKey, model, apiKeySet, apiKeyDirty } while the settings dialog is open
 };
 
 // ---------- API ----------
@@ -322,7 +323,8 @@ function renderShell() {
 function renderModelLabel() {
   const s = state.settings;
   if (!s) return;
-  el.modelLabel.textContent = s.model || 'モデル自動選択';
+  const model = s.providers[s.provider].model || 'モデル自動選択';
+  el.modelLabel.textContent = s.provider === DEFAULT_PROVIDER ? model : `${PROVIDERS[s.provider].label} · ${model}`;
 }
 
 // ---------- Rendering: messages ----------
@@ -647,18 +649,30 @@ async function openSettings() {
   }
   const s = state.settings;
   const form = el.settingsForm;
-  form.baseUrl.value = s.baseUrl;
-  form.apiKey.value = '';
-  form.apiKey.placeholder = s.apiKeySet ? '設定済み（変更するときだけ入力）' : '未設定';
-  form.model.value = s.model;
+  state.providerDrafts = Object.fromEntries(
+    Object.entries(s.providers).map(([id, p]) => [id, { ...p, apiKey: '', apiKeyDirty: false }]),
+  );
+  form.provider.value = s.provider;
+  showProviderDraft();
   form.temperature.value = s.temperature;
   form.contextMessages.value = s.contextMessages;
   form.enableThinking.checked = s.enableThinking;
   form.reasoningEffort.value = s.reasoningEffort;
   form.reasoningEffort.disabled = !s.enableThinking;
-  state.apiKeyDirty = false;
-  setConnectionStatus('', '');
   el.settingsDialog.showModal();
+}
+
+const providerDraft = () => state.providerDrafts[el.settingsForm.provider.value];
+
+function showProviderDraft() {
+  const form = el.settingsForm;
+  const draft = providerDraft();
+  form.baseUrl.value = draft.baseUrl;
+  form.apiKey.value = draft.apiKey;
+  form.apiKey.placeholder = draft.apiKeySet ? '設定済み（変更するときだけ入力）' : '未設定';
+  form.model.value = draft.model;
+  $('#model-options').innerHTML = '';
+  setConnectionStatus('', '');
 }
 
 function setConnectionStatus(text, type) {
@@ -668,35 +682,42 @@ function setConnectionStatus(text, type) {
 
 async function testConnection() {
   const form = el.settingsForm;
+  const provider = form.provider.value;
+  const draft = providerDraft();
   setConnectionStatus('接続しています…', 'loading');
   try {
     const { models } = await api('/api/llm/models', {
       method: 'POST',
-      body: { baseUrl: form.baseUrl.value, apiKey: state.apiKeyDirty ? form.apiKey.value : undefined },
+      body: { provider, baseUrl: draft.baseUrl, apiKey: draft.apiKeyDirty ? draft.apiKey : undefined },
     });
+    // The answer is stale if the user switched providers while it was in flight
+    if (form.provider.value !== provider) return;
     $('#model-options').innerHTML = models.map((id) => `<option value="${esc(id)}"></option>`).join('');
-    if (!form.model.value && models.length === 1) form.model.value = models[0];
+    if (!draft.model && models.length === 1) form.model.value = draft.model = models[0];
     setConnectionStatus(
       models.length ? `接続できました: ${models.join(', ')}` : '接続できましたが、モデルがありません',
       models.length ? 'ok' : 'error',
     );
   } catch (err) {
-    setConnectionStatus(err.message, 'error');
+    if (form.provider.value === provider) setConnectionStatus(err.message, 'error');
   }
 }
 
 async function submitSettings(event) {
   event.preventDefault();
   const form = el.settingsForm;
+  const providers = Object.entries(state.providerDrafts).map(([id, d]) => [
+    id,
+    { baseUrl: d.baseUrl, model: d.model, ...(d.apiKeyDirty ? { apiKey: d.apiKey } : {}) },
+  ]);
   const body = {
-    baseUrl: form.baseUrl.value,
-    model: form.model.value,
+    provider: form.provider.value,
+    providers: Object.fromEntries(providers),
     temperature: Number(form.temperature.value),
     contextMessages: Number(form.contextMessages.value),
     enableThinking: form.enableThinking.checked,
     reasoningEffort: form.reasoningEffort.value,
   };
-  if (state.apiKeyDirty) body.apiKey = form.apiKey.value;
   try {
     state.settings = await api('/api/settings', { method: 'PUT', body });
     renderModelLabel();
@@ -858,9 +879,17 @@ el.messages.addEventListener('keydown', (event) => {
 
 el.sessionForm.addEventListener('submit', submitSessionForm);
 el.settingsForm.addEventListener('submit', submitSettings);
-el.settingsForm.apiKey.addEventListener('input', () => {
-  state.apiKeyDirty = true;
-});
+el.settingsForm.provider.innerHTML = Object.entries(PROVIDERS)
+  .map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`)
+  .join('');
+el.settingsForm.provider.addEventListener('change', showProviderDraft);
+for (const name of ['baseUrl', 'apiKey', 'model']) {
+  el.settingsForm[name].addEventListener('input', () => {
+    const draft = providerDraft();
+    draft[name] = el.settingsForm[name].value;
+    if (name === 'apiKey') draft.apiKeyDirty = true;
+  });
+}
 el.settingsForm.enableThinking.addEventListener('change', () => {
   el.settingsForm.reasoningEffort.disabled = !el.settingsForm.enableThinking.checked;
 });

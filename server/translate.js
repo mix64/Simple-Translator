@@ -1,5 +1,7 @@
 // Translation via an OpenAI-compatible API (/v1/chat/completions, /v1/models)
 
+import { PROVIDERS } from '../public/shared/providers.js';
+
 const PROMPT_LANG = {
   ja: '日本語',
   en: '英語',
@@ -81,19 +83,19 @@ export function splitThink(raw) {
 
 // Yields { type: 'reasoning', text } for reasoning deltas and { type: 'content', text } for content deltas.
 export async function* streamChat(settings, messages) {
-  const model = settings.model || (await listModels(settings))[0];
+  const { baseUrl, apiKey, model: savedModel } = settings.providers[settings.provider];
+  const model = savedModel || (await listModels({ baseUrl, apiKey }))[0];
   if (!model) throw new Error('使用できるモデルが見つかりません。設定画面でモデルを指定してください。');
 
-  const res = await fetch(apiUrl(settings.baseUrl, '/chat/completions'), {
+  const res = await fetch(apiUrl(baseUrl, '/chat/completions'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders(settings.apiKey) },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
     body: JSON.stringify({
       model,
       messages,
       temperature: settings.temperature,
       stream: true,
-      chat_template_kwargs: { enable_thinking: settings.enableThinking },
-      ...(settings.enableThinking && settings.reasoningEffort ? { reasoning_effort: settings.reasoningEffort } : {}),
+      ...PROVIDERS[settings.provider].thinkingParams(settings),
     }),
     signal: AbortSignal.timeout(10 * 60_000),
   });

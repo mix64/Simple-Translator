@@ -5,7 +5,8 @@ Conversations are split into sessions, and every translation is sent to the LLM 
 so proper nouns and domain terms stay consistent within a session.
 
 Translation is done by any LLM server that exposes an OpenAI-compatible API (`/v1/models` and `/v1/chat/completions`),
-such as a local model served with vLLM or llama.cpp.
+such as a local model served with vLLM or llama.cpp, or by the DeepSeek API.
+Each provider keeps its own URL, API key and model, so switching between them in the Settings dialog needs no retyping.
 
 ## Features
 
@@ -22,7 +23,7 @@ The UI is in Japanese.
 ## Requirements
 
 - Node.js 22 or later (no npm dependencies)
-- An LLM server with an OpenAI-compatible API
+- An LLM server with an OpenAI-compatible API, or a DeepSeek API key
 
 ## Getting started
 
@@ -31,7 +32,7 @@ cp config.example.json config.json
 npm start
 ```
 
-Open `http://localhost:8787`, then use 設定 (Settings) in the bottom-left corner to enter the LLM server URL, run the connection test, and save.
+Open `http://localhost:8787`, then use 設定 (Settings) in the bottom-left corner to pick a provider, enter its URL (and API key for DeepSeek), run the connection test, and save.
 Without a `config.json` the server starts with the defaults below and creates the file the first time settings are saved.
 
 ## Configuration
@@ -44,26 +45,29 @@ Both this file and the translation history (`data/`) are ignored by git.
 | `host` | `0.0.0.0` | Address to listen on |
 | `port` | `8787` | Port to listen on |
 | `dataFile` | `data/db.json` | Where sessions and history are stored |
-| `settings.baseUrl` | `http://localhost:8000/v1` | Base URL of the OpenAI-compatible API, up to `/v1` |
-| `settings.apiKey` | empty | Only if the server needs one; never sent to the browser |
-| `settings.model` | empty | When empty, the first model from `/models` is used |
-| `settings.temperature` | `0.3` | |
-| `settings.enableThinking` | `true` | Sent as `chat_template_kwargs.enable_thinking` |
-| `settings.reasoningEffort` | empty | `low`, `medium`, `high` or `max`; not sent when empty |
+| `settings.provider` | `local` | Provider used for translation: `local` or `deepseek` |
+| `settings.providers.<id>.baseUrl` | `http://localhost:8000/v1` (`local`), `https://api.deepseek.com` (`deepseek`) | Base URL of the API, up to `/v1` for a local server |
+| `settings.providers.<id>.apiKey` | empty | Required for DeepSeek, optional for a local server; never sent to the browser |
+| `settings.providers.<id>.model` | empty (`local`), `deepseek-flash` (`deepseek`) | When empty, the first model from `/models` is used |
+| `settings.temperature` | `0.3` | Ignored by DeepSeek while thinking is on |
+| `settings.enableThinking` | `true` | Sent as `chat_template_kwargs.enable_thinking` to a local server and as `thinking.type` to DeepSeek |
+| `settings.reasoningEffort` | empty | `low`, `medium`, `high` or `max`; not sent when empty or when thinking is off |
 | `settings.contextMessages` | `30` | Number of recent messages passed as context |
 
 `settings` can also be changed from the Settings dialog, which writes the values back to `config.json`.
+A `config.json` from an earlier version with flat `settings.baseUrl`, `apiKey` and `model` keys is read as the `local` provider and rewritten in the new shape on the next save.
 Changes to `host`, `port` and `dataFile` take effect after a restart.
 
 ## Project layout
 
 ```
-server/index.js        HTTP server, API and static files
-server/config.js       Reading and writing config.json
-server/store.js        Session and history storage
-server/translate.js    Prompt building and streaming LLM calls
-public/                UI (plain HTML, CSS and JavaScript; no build step)
-public/shared/lang.js  Language definitions and detection, shared by server and UI
+server/index.js             HTTP server, API and static files
+server/config.js            Reading and writing config.json
+server/store.js             Session and history storage
+server/translate.js         Prompt building and streaming LLM calls
+public/                     UI (plain HTML, CSS and JavaScript; no build step)
+public/shared/lang.js       Language definitions and detection, shared by server and UI
+public/shared/providers.js  LLM provider definitions (defaults and thinking parameters), shared by server and UI
 ```
 
 Earlier exchanges are sent as alternating user (original) and assistant (translation) turns, followed by the new text.

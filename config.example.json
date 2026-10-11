@@ -3,9 +3,19 @@
   "port": 8787,
   "dataFile": "data/db.json",
   "settings": {
-    "baseUrl": "http://localhost:8000/v1",
-    "apiKey": "",
-    "model": "",
+    "provider": "local",
+    "providers": {
+      "local": {
+        "baseUrl": "http://localhost:8000/v1",
+        "apiKey": "",
+        "model": ""
+      },
+      "deepseek": {
+        "baseUrl": "https://api.deepseek.com",
+        "apiKey": "",
+        "model": "deepseek-flash"
+      }
+    },
     "temperature": 0.3,
     "enableThinking": true,
     "reasoningEffort": "",

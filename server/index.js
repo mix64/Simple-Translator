@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectSourceLang, TARGET_LANGS, translationLangOf } from '../public/shared/lang.js';
+import { PROVIDERS } from '../public/shared/providers.js';
 import { Config } from './config.js';
 import { Store } from './store.js';
 import { buildChatMessages, listModels, splitThink, streamChat } from './translate.js';
@@ -48,9 +49,17 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-function publicSettings(settings) {
-  const { apiKey, ...rest } = settings;
-  return { ...rest, apiKeySet: Boolean(apiKey) };
+function publicSettings({ providers, ...rest }) {
+  const safe = Object.entries(providers).map(([id, { apiKey, ...profile }]) => [
+    id,
+    { ...profile, apiKeySet: Boolean(apiKey) },
+  ]);
+  return { ...rest, providers: Object.fromEntries(safe) };
+}
+
+function parseProvider(value) {
+  if (!Object.hasOwn(PROVIDERS, value ?? '')) throw new HttpError(400, 'プロバイダーが不正です');
+  return value;
 }
 
 function sessionMessages(sessionId) {
@@ -171,15 +180,21 @@ route('GET', '/api/settings', (req, res) => {
 
 route('PUT', '/api/settings', async (req, res) => {
   const body = await readJson(req);
-  const settings = config.settings;
-  if (body.baseUrl !== undefined) {
-    if (typeof body.baseUrl !== 'string' || !/^https?:\/\/.+/.test(body.baseUrl.trim())) {
-      throw new HttpError(400, 'API の URL は http:// か https:// で始めてください');
+  // Edit a copy so a rejected request leaves the live settings untouched
+  const settings = structuredClone(config.settings);
+  if (body.provider !== undefined) settings.provider = parseProvider(body.provider);
+  for (const [id, patch] of Object.entries(body.providers ?? {})) {
+    const profile = settings.providers[parseProvider(id)];
+    if (typeof patch !== 'object' || patch === null) throw new HttpError(400, 'プロバイダーの設定が不正です');
+    if (patch.baseUrl !== undefined) {
+      if (typeof patch.baseUrl !== 'string' || !/^https?:\/\/.+/.test(patch.baseUrl.trim())) {
+        throw new HttpError(400, `${PROVIDERS[id].label} の API の URL は http:// か https:// で始めてください`);
+      }
+      profile.baseUrl = patch.baseUrl.trim();
     }
-    settings.baseUrl = body.baseUrl.trim();
+    if (patch.apiKey !== undefined) profile.apiKey = String(patch.apiKey).trim();
+    if (patch.model !== undefined) profile.model = String(patch.model).trim();
   }
-  if (body.apiKey !== undefined) settings.apiKey = String(body.apiKey).trim();
-  if (body.model !== undefined) settings.model = String(body.model).trim();
   if (body.temperature !== undefined) {
     const t = Number(body.temperature);
     if (!(t >= 0 && t <= 2)) throw new HttpError(400, 'temperature は 0〜2 で指定してください');
@@ -195,6 +210,7 @@ route('PUT', '/api/settings', async (req, res) => {
     if (!Number.isInteger(n) || n < 0 || n > 500) throw new HttpError(400, '参照する件数は 0〜500 の整数で指定してください');
     settings.contextMessages = n;
   }
+  config.settings = settings;
   await config.saveSettings();
   sendJson(res, 200, publicSettings(settings));
 });
@@ -202,8 +218,9 @@ route('PUT', '/api/settings', async (req, res) => {
 // Takes the URL and key so the connection can be tested before saving. An empty key falls back to the saved one.
 route('POST', '/api/llm/models', async (req, res) => {
   const body = await readJson(req);
-  const baseUrl = String(body.baseUrl ?? config.settings.baseUrl).trim();
-  const apiKey = body.apiKey ? String(body.apiKey) : config.settings.apiKey;
+  const profile = config.settings.providers[parseProvider(body.provider)];
+  const baseUrl = String(body.baseUrl ?? profile.baseUrl).trim();
+  const apiKey = body.apiKey ? String(body.apiKey) : profile.apiKey;
   try {
     sendJson(res, 200, { models: await listModels({ baseUrl, apiKey }) });
   } catch (err) {

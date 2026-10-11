@@ -1,13 +1,11 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
+import { DEFAULT_PROVIDER, PROVIDERS } from '../public/shared/providers.js';
 
 const DEFAULTS = {
   host: '0.0.0.0',
   port: 8787,
   dataFile: 'data/db.json',
   settings: {
-    baseUrl: 'http://localhost:8000/v1',
-    apiKey: '',
-    model: '',
     temperature: 0.3,
     enableThinking: true,
     reasoningEffort: '',
@@ -15,7 +13,27 @@ const DEFAULTS = {
   },
 };
 
-// Per-environment values (listen address, LLM endpoint, API key, ...) live in config.json.
+// Older config files kept a single endpoint as flat settings.baseUrl/apiKey/model; they belong to the local provider.
+function loadSettings(saved = {}) {
+  const { baseUrl, apiKey, model, provider, providers: savedProviders = {}, ...rest } = saved;
+  const legacy = Object.fromEntries(
+    Object.entries({ baseUrl, apiKey, model }).filter(([, value]) => value !== undefined),
+  );
+  const providers = Object.fromEntries(
+    Object.entries(PROVIDERS).map(([id, p]) => [
+      id,
+      { apiKey: '', ...p.defaults, ...(id === DEFAULT_PROVIDER ? legacy : {}), ...savedProviders[id] },
+    ]),
+  );
+  return {
+    ...DEFAULTS.settings,
+    ...rest,
+    provider: Object.hasOwn(PROVIDERS, provider ?? '') ? provider : DEFAULT_PROVIDER,
+    providers,
+  };
+}
+
+// Per-environment values (listen address, LLM endpoints, API keys, ...) live in config.json.
 // Settings changed in the UI are written back to its "settings" key.
 export class Config {
   constructor(file) {
@@ -34,7 +52,7 @@ export class Config {
     this.host = this.raw.host ?? DEFAULTS.host;
     this.port = Number(this.raw.port ?? DEFAULTS.port);
     this.dataFile = this.raw.dataFile ?? DEFAULTS.dataFile;
-    this.settings = { ...DEFAULTS.settings, ...this.raw.settings };
+    this.settings = loadSettings(this.raw.settings);
   }
 
   saveSettings() {
