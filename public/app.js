@@ -1,5 +1,5 @@
 import { LANGS, detectSourceLang } from './shared/lang.js';
-import { DEFAULT_PROVIDER, PROVIDERS } from './shared/providers.js';
+import { PROVIDERS } from './shared/providers.js';
 
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
@@ -11,6 +11,7 @@ const ICONS = {
   pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
   arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   swap: '<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
   languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
@@ -32,9 +33,7 @@ const isSubmitEnter = (event) =>
 const el = {
   sidebar: $('#sidebar'),
   sessionList: $('#session-list'),
-  modelLabel: $('#model-label'),
   title: $('#session-title'),
-  pair: $('#session-pair'),
   editBtn: $('#edit-session-btn'),
   welcome: $('#welcome'),
   thread: $('#thread'),
@@ -312,19 +311,8 @@ function renderShell() {
   el.composerWrap.hidden = !session;
   el.editBtn.hidden = !session;
   el.title.textContent = session ? session.title || '新しいセッション' : 'Simple Translator';
-  const glossaryCount = session?.notes?.split('\n').filter((line) => line.trim()).length ?? 0;
-  el.pair.innerHTML = session
-    ? `${LANGS.ja.name} ${icon('swap', 13)} ${esc(LANGS[session.targetLang].name)}${glossaryCount ? ` ・ 用語メモ ${glossaryCount} 件` : ''}`
-    : '';
   document.title = session ? `${session.title || '新しいセッション'} - Simple Translator` : 'Simple Translator';
   updateComposer();
-}
-
-function renderModelLabel() {
-  const s = state.settings;
-  if (!s) return;
-  const model = s.providers[s.provider].model || 'モデル自動選択';
-  el.modelLabel.textContent = s.provider === DEFAULT_PROVIDER ? model : `${PROVIDERS[s.provider].label} · ${model}`;
 }
 
 // ---------- Rendering: messages ----------
@@ -356,7 +344,7 @@ function reasoningHtml(m) {
   if (!m.reasoning) return '';
   const live = isReasoningLive(m);
   const open = isReasoningOpen(m);
-  const label = live ? '<span class="pulse">思考中…</span>' : '思考プロセス';
+  const label = live ? '<span class="pulse">思考中…</span>' : '思考';
   return `
     <div class="reasoning${open ? ' open' : ''}${live ? ' live' : ''}">
       <button type="button" class="reasoning-toggle" data-action="toggle-reasoning" aria-expanded="${open}">
@@ -386,7 +374,6 @@ function editMessageHtml(m) {
   return `
     <article class="msg${m.sourceLang === 'ja' ? ' mine' : ''} editing" data-id="${m.id}" data-key="${renderKey(m)}">
       <div class="bubble">
-        <div class="bubble-head"><span class="bubble-kind">原文を編集</span></div>
         <textarea class="bubble-edit" rows="1" aria-label="原文">${esc(m.original)}</textarea>
         <div class="bubble-foot">
           <time class="bubble-time" datetime="${m.createdAt}">${formatTime(m.createdAt)}</time>
@@ -415,7 +402,6 @@ function messageHtml(m) {
       <div class="bubble">
         <div class="bubble-head">
           <div class="seg" role="group" aria-label="表示する言語">${seg}</div>
-          <span class="bubble-kind">${view === 'original' ? '原文' : '訳文'}</span>
         </div>
         ${bodyHtml(m, view)}
         <div class="bubble-foot">
@@ -425,7 +411,7 @@ function messageHtml(m) {
           <button type="button" class="mini-btn secondary" data-action="retranslate" title="再翻訳">${icon('refresh', 14)}</button>
           <button type="button" class="mini-btn secondary" data-action="flip" title="言語判定を反転して再翻訳">${icon('swap', 14)}</button>
           <button type="button" class="mini-btn secondary" data-action="delete-message" title="削除">${icon('trash', 14)}</button>`}
-          <button type="button" class="mini-btn" data-action="copy" ${copyDisabled ? 'disabled' : ''}>${icon('copy', 14)}<span>コピー</span></button>
+          <button type="button" class="mini-btn" data-action="copy" title="コピー" ${copyDisabled ? 'disabled' : ''}>${icon('copy', 14)}</button>
         </div>
       </div>
     </article>`;
@@ -533,14 +519,10 @@ function updateComposer() {
   const session = activeSession();
   if (!session) return;
   const src = composerSourceLang(session);
-  const fixed = state.dirMode !== 'auto';
-  el.dirChip.classList.toggle('fixed', fixed);
-  if (src) {
-    const tgt = src === 'ja' ? session.targetLang : 'ja';
-    el.dirChip.innerHTML = `<span class="mode">${fixed ? '固定' : '自動'}</span>${esc(LANGS[src].name)} → ${esc(LANGS[tgt].name)}`;
-  } else {
-    el.dirChip.innerHTML = `<span class="mode">自動</span>${esc(LANGS.ja.name)} ${icon('swap', 13)} ${esc(LANGS[session.targetLang].name)}`;
-  }
+  // An accent chip means the direction is fixed; a neutral one follows the detected language
+  el.dirChip.classList.toggle('fixed', state.dirMode !== 'auto');
+  const [from, to] = src ? [src, src === 'ja' ? session.targetLang : 'ja'] : ['ja', session.targetLang];
+  el.dirChip.innerHTML = `${esc(LANGS[from].name)} ${icon(src ? 'arrowRight' : 'swap', 13)} ${esc(LANGS[to].name)}`;
   el.sendBtn.disabled = !el.input.value.trim();
 }
 
@@ -606,7 +588,6 @@ async function submitSessionForm(event) {
       el.sessionDialog.close();
       await loadSessions();
       await reloadMessages();
-      toast('セッションを更新しました');
     } else {
       const session = await api('/api/sessions', { method: 'POST', body });
       storage('lastTargetLang', body.targetLang);
@@ -634,7 +615,6 @@ async function deleteSession() {
       history.replaceState(null, '', location.pathname);
       await selectSession(null);
     }
-    toast('セッションを削除しました');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -658,7 +638,7 @@ async function openSettings() {
   form.contextMessages.value = s.contextMessages;
   form.enableThinking.checked = s.enableThinking;
   form.reasoningEffort.value = s.reasoningEffort;
-  form.reasoningEffort.disabled = !s.enableThinking;
+  $('#effort-field').hidden = !s.enableThinking;
   el.settingsDialog.showModal();
 }
 
@@ -669,7 +649,7 @@ function showProviderDraft() {
   const draft = providerDraft();
   form.baseUrl.value = draft.baseUrl;
   form.apiKey.value = draft.apiKey;
-  form.apiKey.placeholder = draft.apiKeySet ? '設定済み（変更するときだけ入力）' : '未設定';
+  form.apiKey.placeholder = draft.apiKeySet ? '••••••••' : '';
   form.model.value = draft.model;
   $('#model-options').innerHTML = '';
   setConnectionStatus('', '');
@@ -695,10 +675,7 @@ async function testConnection() {
     $('#model-options').innerHTML = models.map((id) => `<option value="${esc(id)}"></option>`).join('');
     // A model the server no longer serves is swapped for one it does
     if (models.length && !models.includes(draft.model)) form.model.value = draft.model = models[0];
-    setConnectionStatus(
-      models.length ? `接続できました: ${models.join(', ')}` : '接続できましたが、モデルがありません',
-      models.length ? 'ok' : 'error',
-    );
+    setConnectionStatus(models.length ? '接続できました' : 'モデルがありません', models.length ? 'ok' : 'error');
   } catch (err) {
     if (form.provider.value === provider) setConnectionStatus(err.message, 'error');
   }
@@ -720,10 +697,8 @@ async function submitSettings(event) {
     reasoningEffort: form.reasoningEffort.value,
   };
   try {
-    state.settings = await api('/api/settings', { method: 'PUT', body });
-    renderModelLabel();
+    await api('/api/settings', { method: 'PUT', body });
     el.settingsDialog.close();
-    toast('設定を保存しました');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -799,10 +774,10 @@ const actions = {
     if (!text) return;
     if (await copyText(text)) {
       btn.classList.add('copied');
-      btn.innerHTML = `${icon('check', 14)}<span>コピーしました</span>`;
+      btn.innerHTML = icon('check', 14);
       setTimeout(() => {
         btn.classList.remove('copied');
-        btn.innerHTML = `${icon('copy', 14)}<span>コピー</span>`;
+        btn.innerHTML = icon('copy', 14);
       }, 1500);
     } else {
       toast('コピーできませんでした', 'error');
@@ -892,7 +867,7 @@ for (const name of ['baseUrl', 'apiKey', 'model']) {
   });
 }
 el.settingsForm.enableThinking.addEventListener('change', () => {
-  el.settingsForm.reasoningEffort.disabled = !el.settingsForm.enableThinking.checked;
+  $('#effort-field').hidden = !el.settingsForm.enableThinking.checked;
 });
 
 for (const dialog of [el.sessionDialog, el.settingsDialog]) {
@@ -915,9 +890,7 @@ for (const node of document.querySelectorAll('[data-icon]')) {
 
 async function init() {
   try {
-    const [settings] = await Promise.all([api('/api/settings'), loadSessions()]);
-    state.settings = settings;
-    renderModelLabel();
+    await loadSessions();
   } catch (err) {
     toast(err.message, 'error');
   }

@@ -25,10 +25,7 @@
       <div class="sidebar-foot">
         <button type="button" class="sidebar-settings" data-action="open-settings">
           <span data-icon="sliders"></span>
-          <span class="sidebar-settings-text">
-            <span>設定</span>
-            <span class="model-label" id="model-label"></span>
-          </span>
+          設定
         </button>
       </div>
     </aside>
@@ -39,10 +36,7 @@
         <button type="button" class="icon-btn mobile-only" data-action="open-sidebar" aria-label="セッション一覧">
           <span data-icon="menu"></span>
         </button>
-        <div class="topbar-title">
-          <h1 id="session-title">Simple Translator</h1>
-          <div class="pair" id="session-pair"></div>
-        </div>
+        <h1 class="topbar-title" id="session-title">Simple Translator</h1>
         <button type="button" class="icon-btn" id="edit-session-btn" data-action="edit-session" aria-label="セッションを編集" hidden>
           <span data-icon="pencil"></span>
         </button>
@@ -62,7 +56,7 @@
         <form class="composer" id="composer">
           <textarea id="input" rows="1" aria-label="翻訳するテキスト" autocomplete="off"></textarea>
           <div class="composer-bar">
-            <button type="button" class="dir-chip" id="dir-chip" data-action="cycle-dir" title="翻訳の向き"></button>
+            <button type="button" class="dir-chip" id="dir-chip" data-action="cycle-dir" aria-label="翻訳の向き"></button>
             <button type="submit" class="send-btn" id="send-btn" aria-label="送信">
               <span data-icon="arrowUp"></span>
             </button>
@@ -79,25 +73,19 @@
         <button type="button" class="icon-btn" data-action="close-dialog" aria-label="閉じる"><span data-icon="x"></span></button>
       </header>
       <div class="modal-body">
+        <input type="text" class="title-input" name="title" maxlength="100" placeholder="新しいセッション" aria-label="セッション名">
+        <div class="lang-options" role="radiogroup" aria-label="翻訳する言語">
+          <label class="lang-option">
+            <input type="radio" name="targetLang" value="en" checked>
+            <span class="lang-option-card">日本語<span data-icon="swap"></span><b>English</b></span>
+          </label>
+          <label class="lang-option">
+            <input type="radio" name="targetLang" value="zh">
+            <span class="lang-option-card">日本語<span data-icon="swap"></span><b>中文（简体）</b></span>
+          </label>
+        </div>
         <label class="field">
-          <span class="field-label">セッション名</span>
-          <input type="text" name="title" maxlength="100">
-        </label>
-        <fieldset class="field">
-          <legend class="field-label">相手の言語</legend>
-          <div class="lang-options">
-            <label class="lang-option">
-              <input type="radio" name="targetLang" value="en" checked>
-              <span class="lang-option-card"><b>English</b></span>
-            </label>
-            <label class="lang-option">
-              <input type="radio" name="targetLang" value="zh">
-              <span class="lang-option-card"><b>中文（简体）</b></span>
-            </label>
-          </div>
-        </fieldset>
-        <label class="field">
-          <span class="field-label">用語メモ <small>任意</small></span>
+          <span class="field-label">用語メモ</span>
           <textarea name="notes" rows="4"></textarea>
         </label>
       </div>
@@ -119,7 +107,6 @@
         <button type="button" class="icon-btn" data-action="close-dialog" aria-label="閉じる"><span data-icon="x"></span></button>
       </header>
       <div class="modal-body">
-        <p class="section-label">LLM サーバー</p>
         <label class="field">
           <span class="field-label">プロバイダー</span>
           <select name="provider"></select>
@@ -129,7 +116,7 @@
           <input type="url" name="baseUrl" required>
         </label>
         <label class="field">
-          <span class="field-label">API キー <small>任意</small></span>
+          <span class="field-label">API キー</span>
           <input type="password" name="apiKey" autocomplete="off" placeholder="未設定">
         </label>
         <div class="field">
@@ -144,12 +131,12 @@
           <span class="connection-status" id="connection-status"></span>
         </div>
 
-        <p class="section-label">翻訳</p>
+        <hr class="divider">
         <label class="switch-field">
           <span class="field-label">思考モード</span>
           <input type="checkbox" name="enableThinking" class="switch">
         </label>
-        <label class="field">
+        <label class="field" id="effort-field">
           <span class="field-label">Effort</span>
           <select name="reasoningEffort">
             <option value="">指定なし</option>
