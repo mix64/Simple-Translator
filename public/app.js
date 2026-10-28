@@ -693,7 +693,8 @@ async function testConnection() {
     // The answer is stale if the user switched providers while it was in flight
     if (form.provider.value !== provider) return;
     $('#model-options').innerHTML = models.map((id) => `<option value="${esc(id)}"></option>`).join('');
-    if (!draft.model && models.length === 1) form.model.value = draft.model = models[0];
+    // A model the server no longer serves is swapped for one it does
+    if (models.length && !models.includes(draft.model)) form.model.value = draft.model = models[0];
     setConnectionStatus(
       models.length ? `接続できました: ${models.join(', ')}` : '接続できましたが、モデルがありません',
       models.length ? 'ok' : 'error',
