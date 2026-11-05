@@ -5,7 +5,8 @@ Conversations are split into sessions, and every translation is sent to the LLM 
 so proper nouns and domain terms stay consistent within a session.
 
 Translation is done by any LLM server that exposes an OpenAI-compatible API (`/v1/models` and `/v1/chat/completions`),
-such as a local model served with vLLM or llama.cpp, or by the DeepSeek API.
+such as a local model served with vLLM or llama.cpp, by the DeepSeek API,
+or by PLaMo 3 Translate served with llama.cpp's `llama-server`.
 Each provider keeps its own URL, API key and model, so switching between them in the Settings dialog needs no retyping.
 
 ## Features
@@ -45,10 +46,10 @@ Both this file and the translation history (`data/`) are ignored by git.
 | `host` | `0.0.0.0` | Address to listen on |
 | `port` | `8787` | Port to listen on |
 | `dataFile` | `data/db.json` | Where sessions and history are stored |
-| `settings.provider` | `local` | Provider used for translation: `local` or `deepseek` |
-| `settings.providers.<id>.baseUrl` | `http://localhost:8000/v1` (`local`), `https://api.deepseek.com` (`deepseek`) | Base URL of the API, up to `/v1` for a local server |
+| `settings.provider` | `local` | Provider used for translation: `local`, `deepseek` or `plamo` |
+| `settings.providers.<id>.baseUrl` | `http://localhost:8000/v1` (`local`), `https://api.deepseek.com` (`deepseek`), `http://localhost:8890/v1` (`plamo`) | Base URL of the API, up to `/v1` for a local server |
 | `settings.providers.<id>.apiKey` | empty | Required for DeepSeek, optional for a local server; never sent to the browser |
-| `settings.providers.<id>.model` | empty (`local`), `deepseek-flash` (`deepseek`) | When empty, the first model from `/models` is used |
+| `settings.providers.<id>.model` | empty (`local`, `plamo`), `deepseek-flash` (`deepseek`) | When empty, the first model from `/models` is used |
 | `settings.temperature` | `0.3` | Ignored by DeepSeek while thinking is on |
 | `settings.enableThinking` | `true` | Sent as `chat_template_kwargs.enable_thinking` to a local server and as `thinking.type` to DeepSeek |
 | `settings.reasoningEffort` | empty | `low`, `medium`, `high` or `max`; not sent when empty or when thinking is off |
@@ -67,11 +68,17 @@ server/store.js             Session and history storage
 server/translate.js         Prompt building and streaming LLM calls
 public/                     UI (plain HTML, CSS and JavaScript; no build step)
 public/shared/lang.js       Language definitions and detection, shared by server and UI
-public/shared/providers.js  LLM provider definitions (defaults and thinking parameters), shared by server and UI
+public/shared/providers.js  LLM provider definitions (defaults, request format and thinking parameters), shared by server and UI
 ```
 
 Earlier exchanges are sent as alternating user (original) and assistant (translation) turns, followed by the new text.
 The glossary goes into the system prompt.
+
+PLaMo 3 Translate is a translation-only model and is driven differently.
+It takes no system prompt: the languages go in as `chat_template_kwargs.source_lang` and `target_lang`, and the glossary as `context`.
+Its template labels every earlier turn with the current request's languages,
+so earlier exchanges in the opposite direction are sent flipped (the translation as the user turn, the original as the assistant turn).
+Thinking, effort and temperature are not used; requests always run with temperature 0, and those fields are hidden in the Settings dialog while it is selected.
 
 ## Notes
 

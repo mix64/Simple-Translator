@@ -33,7 +33,7 @@ function sourceBlock(message) {
 }
 
 // Past exchanges are laid out as user / assistant turns so the model keeps the same terms and style.
-export function buildChatMessages({ session, history, message }) {
+function buildInstructRequest({ settings, session, history, message }) {
   const system = [
     `あなたは日本語と${PROMPT_LANG[session.targetLang]}の間を訳すプロの翻訳者です。`,
     'ユーザーメッセージの 1 行目は「[原文の言語 → 訳文の言語]」、2 行目以降が原文です。',
@@ -55,8 +55,45 @@ export function buildChatMessages({ session, history, message }) {
     messages.push({ role: 'user', content: sourceBlock(m) }, { role: 'assistant', content: m.translation });
   }
   messages.push({ role: 'user', content: sourceBlock(message) });
-  return messages;
+  return {
+    messages,
+    temperature: settings.temperature,
+    ...PROVIDERS[settings.provider].thinkingParams(settings),
+  };
 }
+
+const PLAMO_LANG = { ja: 'ja', en: 'en', zh: 'zh-hans' };
+
+// PLaMo 3 Translate takes no system prompt; its template labels every earlier user turn with source_lang
+// and every assistant turn with target_lang, so each past exchange is turned to face the current direction.
+function buildPlamoRequest({ session, history, message }) {
+  const messages = history.flatMap((m) => {
+    const [source, translation] =
+      m.sourceLang === message.sourceLang ? [m.original, m.translation] : [m.translation, m.original];
+    return [
+      { role: 'user', content: source },
+      { role: 'assistant', content: translation },
+    ];
+  });
+  messages.push({ role: 'user', content: message.original });
+  const notes = session.notes?.trim();
+  return {
+    messages,
+    chat_template_kwargs: {
+      source_lang: PLAMO_LANG[message.sourceLang],
+      target_lang: PLAMO_LANG[message.targetLang],
+      ...(notes ? { context: notes } : {}),
+    },
+    temperature: 0,
+    stop: ['<|plamo:tag|>', '<|plamo:bos|>'],
+  };
+}
+
+// Keyed by PROVIDERS[id].format. Each returns the request-specific part of the chat completion body.
+export const REQUEST_BUILDERS = {
+  instruct: buildInstructRequest,
+  plamo: buildPlamoRequest,
+};
 
 // Some models mix <think>...</think> into the content, so split it into reasoning and translation.
 export function splitThink(raw) {
@@ -82,7 +119,7 @@ export function splitThink(raw) {
 }
 
 // Yields { type: 'reasoning', text } for reasoning deltas and { type: 'content', text } for content deltas.
-export async function* streamChat(settings, messages) {
+export async function* streamChat(settings, request) {
   const { baseUrl, apiKey, model: savedModel } = settings.providers[settings.provider];
   const model = savedModel || (await listModels({ baseUrl, apiKey }))[0];
   if (!model) throw new Error('使用できるモデルが見つかりません。設定画面でモデルを指定してください。');
@@ -90,13 +127,7 @@ export async function* streamChat(settings, messages) {
   const res = await fetch(apiUrl(baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: settings.temperature,
-      stream: true,
-      ...PROVIDERS[settings.provider].thinkingParams(settings),
-    }),
+    body: JSON.stringify({ model, ...request, stream: true }),
     signal: AbortSignal.timeout(10 * 60_000),
   });
   if (!res.ok) {

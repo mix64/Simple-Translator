@@ -7,7 +7,7 @@ import { detectSourceLang, TARGET_LANGS, translationLangOf } from '../public/sha
 import { PROVIDERS } from '../public/shared/providers.js';
 import { Config } from './config.js';
 import { Store } from './store.js';
-import { buildChatMessages, listModels, splitThink, streamChat } from './translate.js';
+import { listModels, REQUEST_BUILDERS, splitThink, streamChat } from './translate.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -143,7 +143,8 @@ async function runTranslation(res, session, message) {
     let reasoningField = '';
     let content = '';
     let sentReasoning = '';
-    for await (const event of streamChat(settings, buildChatMessages({ session, history, message }))) {
+    const request = REQUEST_BUILDERS[PROVIDERS[settings.provider].format]({ settings, session, history, message });
+    for await (const event of streamChat(settings, request)) {
       if (event.type === 'reasoning') reasoningField += event.text;
       else content += event.text;
       const { reasoning, text } = splitThink(content);

@@ -638,8 +638,17 @@ async function openSettings() {
   form.contextMessages.value = s.contextMessages;
   form.enableThinking.checked = s.enableThinking;
   form.reasoningEffort.value = s.reasoningEffort;
-  $('#effort-field').hidden = !s.enableThinking;
+  showFormatFields();
   el.settingsDialog.showModal();
+}
+
+// PLaMo 3 Translate has no thinking mode and is always run greedily, so these settings do not apply to it.
+function showFormatFields() {
+  const form = el.settingsForm;
+  const instruct = PROVIDERS[form.provider.value].format === 'instruct';
+  $('#thinking-field').hidden = !instruct;
+  $('#temperature-field').hidden = !instruct;
+  $('#effort-field').hidden = !instruct || !form.enableThinking.checked;
 }
 
 const providerDraft = () => state.providerDrafts[el.settingsForm.provider.value];
@@ -858,7 +867,10 @@ el.settingsForm.addEventListener('submit', submitSettings);
 el.settingsForm.provider.innerHTML = Object.entries(PROVIDERS)
   .map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`)
   .join('');
-el.settingsForm.provider.addEventListener('change', showProviderDraft);
+el.settingsForm.provider.addEventListener('change', () => {
+  showProviderDraft();
+  showFormatFields();
+});
 for (const name of ['baseUrl', 'apiKey', 'model']) {
   el.settingsForm[name].addEventListener('input', () => {
     const draft = providerDraft();
@@ -866,9 +878,7 @@ for (const name of ['baseUrl', 'apiKey', 'model']) {
     if (name === 'apiKey') draft.apiKeyDirty = true;
   });
 }
-el.settingsForm.enableThinking.addEventListener('change', () => {
-  $('#effort-field').hidden = !el.settingsForm.enableThinking.checked;
-});
+el.settingsForm.enableThinking.addEventListener('change', showFormatFields);
 
 for (const dialog of [el.sessionDialog, el.settingsDialog]) {
   dialog.addEventListener('click', (event) => {

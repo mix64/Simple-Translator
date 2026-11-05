@@ -14,6 +14,11 @@
         "baseUrl": "https://api.deepseek.com",
         "apiKey": "",
         "model": "deepseek-flash"
+      },
+      "plamo": {
+        "baseUrl": "http://localhost:8890/v1",
+        "apiKey": "",
+        "model": ""
       }
     },
     "temperature": 0.3,
